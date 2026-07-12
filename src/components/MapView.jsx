@@ -1,0 +1,191 @@
+import { useEffect, useRef } from 'react'
+import { loadGoogleMaps } from '../utils/loadGoogleMaps'
+
+const MAP_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#1B212B' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#12161D' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#8993A6' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#232B37' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#12161D' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2A323F' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0E1A24' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#2A323F' }] }
+]
+
+export default function MapView({ apiKey, userPosition, parkedSpot, following, onMapError }) {
+  const mapRef = useRef(null)
+  const mapInstance = useRef(null)
+  const userMarker = useRef(null)
+  const parkedMarker = useRef(null)
+  const pulseCircle = useRef(null)
+  const pulseFrame = useRef(null)
+  const directionsRenderer = useRef(null)
+  const directionsService = useRef(null)
+  const hasFitBounds = useRef(false)
+
+  // Initialize map once.
+  useEffect(() => {
+    let cancelled = false
+
+    loadGoogleMaps(apiKey)
+      .then((maps) => {
+        if (cancelled || !mapRef.current) return
+        mapInstance.current = new maps.Map(mapRef.current, {
+          center: { lat: 20.5937, lng: 78.9629 },
+          zoom: 17,
+          disableDefaultUI: true,
+          zoomControl: true,
+          styles: MAP_STYLE
+        })
+        directionsService.current = new maps.DirectionsService()
+        directionsRenderer.current = new maps.DirectionsRenderer({
+          suppressMarkers: true,
+          polylineOptions: {
+            strokeColor: '#B4FF39',
+            strokeWeight: 4,
+            strokeOpacity: 0.9
+          }
+        })
+        directionsRenderer.current.setMap(mapInstance.current)
+      })
+      .catch((err) => onMapError?.(err.message))
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey])
+
+  // Update / create the live user marker.
+  useEffect(() => {
+    const maps = window.google?.maps
+    if (!maps || !mapInstance.current || !userPosition) return
+
+    if (!userMarker.current) {
+      userMarker.current = new maps.Marker({
+        map: mapInstance.current,
+        position: userPosition,
+        icon: {
+          path: maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: '#4FA8FF',
+          fillOpacity: 1,
+          strokeColor: '#0E1A24',
+          strokeWeight: 3
+        },
+        zIndex: 10,
+        title: 'You are here'
+      })
+      mapInstance.current.setCenter(userPosition)
+    } else {
+      userMarker.current.setPosition(userPosition)
+    }
+
+    if (!hasFitBounds.current && !parkedMarker.current) {
+      mapInstance.current.setCenter(userPosition)
+      hasFitBounds.current = true
+    }
+  }, [userPosition])
+
+  // Create / update the parked marker plus its radar-ping pulse.
+  useEffect(() => {
+    const maps = window.google?.maps
+    if (!maps || !mapInstance.current) return
+
+    if (!parkedSpot) {
+      parkedMarker.current?.setMap(null)
+      parkedMarker.current = null
+      pulseCircle.current?.setMap(null)
+      pulseCircle.current = null
+      if (pulseFrame.current) cancelAnimationFrame(pulseFrame.current)
+      return
+    }
+
+    const pos = { lat: parkedSpot.lat, lng: parkedSpot.lng }
+
+    if (!parkedMarker.current) {
+      parkedMarker.current = new maps.Marker({
+        map: mapInstance.current,
+        position: pos,
+        icon: {
+          path: 'M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z',
+          fillColor: '#FF6B35',
+          fillOpacity: 1,
+          strokeColor: '#12161D',
+          strokeWeight: 1.5,
+          scale: 1.6,
+          anchor: new maps.Point(12, 22)
+        },
+        zIndex: 20,
+        title: 'Your cycle'
+      })
+
+      pulseCircle.current = new maps.Circle({
+        map: mapInstance.current,
+        center: pos,
+        radius: 0,
+        strokeColor: '#FF6B35',
+        strokeOpacity: 0.5,
+        strokeWeight: 1,
+        fillColor: '#FF6B35',
+        fillOpacity: 0.18
+      })
+
+      const start = performance.now()
+      const durationMs = 2200
+      const maxRadius = 40
+
+      const tick = (now) => {
+        const t = ((now - start) % durationMs) / durationMs
+        pulseCircle.current?.setRadius(maxRadius * t)
+        pulseCircle.current?.setOptions({
+          fillOpacity: 0.22 * (1 - t),
+          strokeOpacity: 0.5 * (1 - t)
+        })
+        pulseFrame.current = requestAnimationFrame(tick)
+      }
+      pulseFrame.current = requestAnimationFrame(tick)
+
+      mapInstance.current.setCenter(pos)
+    } else {
+      parkedMarker.current.setPosition(pos)
+      pulseCircle.current?.setCenter(pos)
+    }
+
+    return () => {
+      if (pulseFrame.current) cancelAnimationFrame(pulseFrame.current)
+    }
+  }, [parkedSpot])
+
+  // Draw / clear the walking route when "follow" mode is active.
+  useEffect(() => {
+    const maps = window.google?.maps
+    if (!maps || !directionsService.current || !directionsRenderer.current) return
+
+    if (!following || !userPosition || !parkedSpot) {
+      directionsRenderer.current.setDirections({ routes: [] })
+      return
+    }
+
+    directionsService.current.route(
+      {
+        origin: userPosition,
+        destination: { lat: parkedSpot.lat, lng: parkedSpot.lng },
+        travelMode: maps.TravelMode.WALKING
+      },
+      (result, status) => {
+        if (status === 'OK') {
+          directionsRenderer.current.setDirections(result)
+          const bounds = new maps.LatLngBounds()
+          bounds.extend(userPosition)
+          bounds.extend(parkedSpot)
+          mapInstance.current.fitBounds(bounds, 80)
+        }
+      }
+    )
+  }, [following, userPosition, parkedSpot])
+
+  return <div ref={mapRef} className="map-canvas" />
+}
