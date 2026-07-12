@@ -38,3 +38,11 @@ export function bearingDegrees(a, b) {
 
   return (toDeg(Math.atan2(y, x)) + 360) % 360
 }
+
+const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+
+// Converts a bearing in degrees to an 8-point compass label (N, NE, E...).
+export function compassLabel(deg) {
+  if (deg == null || Number.isNaN(deg)) return '--'
+  return COMPASS_POINTS[Math.round(deg / 45) % 8]
+}
