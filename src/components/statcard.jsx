@@ -4,6 +4,7 @@ export default function StatCard({ meters, bearing, following }) {
   const [value, unit] = formatDistance(meters).split(' ')
   const rotation = bearing ?? 0
 
+  
   return (
     <div className={`stat-card ${following ? 'stat-card--following' : ''}`}>
       <div className="compass">
