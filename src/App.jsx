@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react'
 import MapView from './components/MapView'
-import ControlPanel from './components/ControlPanel'
+import StatCard from './components/StatCard'
+import Dock from './components/Dock'
+import { IconPin, IconBike } from './components/icons'
 import { useGeolocation } from './hooks/useGeolocation'
 import { useParkedLocation } from './hooks/useParkedLocation'
-import { haversineMeters } from './utils/distance'
+import { haversineMeters, bearingDegrees } from './utils/distance'
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 
 export default function App() {
-  const { position, error: geoError, loading } = useGeolocation({ watch: true })
-  const { spot, parkHere, clearSpot } = useParkedLocation()
+  const { position, accuracy, error: geoError, loading } = useGeolocation({ watch: true })
+  const { spot, parkHere, clearSpot, storageError } = useParkedLocation()
   const [following, setFollowing] = useState(false)
   const [shareStatus, setShareStatus] = useState('')
   const [mapError, setMapError] = useState('')
@@ -19,10 +21,16 @@ export default function App() {
     [position, spot]
   )
 
+  const bearing = useMemo(
+    () => (position && spot ? bearingDegrees(position, spot) : null),
+    [position, spot]
+  )
+
   const handlePark = () => {
     if (!position) return
     parkHere(position)
-    setShareStatus('')
+    setShareStatus('Cycle parked.')
+    setTimeout(() => setShareStatus(''), 2500)
   }
 
   const handleClear = () => {
@@ -54,43 +62,67 @@ export default function App() {
         setShareStatus(mapsUrl)
       }
     }
+
+    setTimeout(() => setShareStatus(''), 3500)
   }
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar__brand">
-          <span className="topbar__dot" />
-          Park My Cycle
+          <span className="topbar__brand-icon">
+            <IconPin />
+          </span>
+          <span className="topbar__title">Park My Cycle</span>
         </div>
-        <span className="topbar__status">
+        <div className="topbar__status">
+          <span className={`status-dot ${loading || geoError ? 'status-dot--warn' : ''}`} />
           {loading && 'Locating\u2026'}
-          {!loading && geoError && 'Location unavailable'}
+          {!loading && geoError && 'Offline'}
           {!loading && !geoError && position && 'Live'}
-        </span>
+        </div>
       </header>
 
-      {(geoError || mapError) && (
-        <div className="banner banner--error">{geoError || mapError}</div>
+      {(geoError || mapError || storageError) && (
+        <div className="banner banner--error">{geoError || mapError || storageError}</div>
       )}
 
       <MapView
         apiKey={API_KEY}
         userPosition={position}
+        accuracy={accuracy}
         parkedSpot={spot}
         following={following}
         onMapError={setMapError}
       />
 
-      <ControlPanel
+      <div className="stage">
+        {!spot && (
+          <div className="prompt-card">
+            <span className="prompt-card__icon">
+              <IconBike />
+            </span>
+            <div>
+              <p className="prompt-card__title">No cycle parked yet</p>
+              <p className="prompt-card__body">Tap Park below to drop a pin here.</p>
+            </div>
+          </div>
+        )}
+
+        {spot && (
+          <StatCard meters={distanceMeters} bearing={bearing} following={following} />
+        )}
+
+        {shareStatus && <div className="toast">{shareStatus}</div>}
+      </div>
+
+      <Dock
         spot={spot}
-        distanceMeters={distanceMeters}
         following={following}
         onPark={handlePark}
         onToggleFollow={() => setFollowing((f) => !f)}
         onShare={handleShare}
         onClear={handleClear}
-        shareStatus={shareStatus}
       />
     </div>
   )
