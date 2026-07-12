@@ -1,0 +1,4 @@
+# Copy this file to .env and add your own key.
+# Get a key at https://console.cloud.google.com/google/maps-apis
+# Enable: "Maps JavaScript API" and "Directions API"
+VITE_GOOGLE_MAPS_API_KEY=AIzaSyAkKpKLKaUmehyjEz30MDyjbNKZWRtSKFo
